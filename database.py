@@ -10,6 +10,9 @@ import os
 from datetime import datetime
 from typing import List, Dict, Optional
 
+# Import custom exceptions
+from exceptions import DatabaseError, ValidationError
+
 class PostDatabase:
     def __init__(self, config):
         self.db_path = config['database']['path']
@@ -18,10 +21,17 @@ class PostDatabase:
     
     def _init_database(self):
         """Initialize database with required tables"""
-        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+        try:
+            # Ensure database directory exists
+            db_dir = os.path.dirname(self.db_path)
+            if db_dir:
+                os.makedirs(db_dir, exist_ok=True)
+        except OSError as e:
+            raise DatabaseError(f"Failed to create database directory: {e}")
         
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute('''
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute('''
                 CREATE TABLE IF NOT EXISTS posts (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     post_id TEXT UNIQUE,
@@ -66,49 +76,57 @@ class PostDatabase:
             ''')
             
             conn.commit()
+        except sqlite3.Error as e:
+            raise DatabaseError(f"Failed to initialize database: {e}")
     
     def store_posts(self, posts: List[Dict]) -> int:
         """Store scraped posts in database"""
+        if not posts:
+            raise ValidationError("No posts provided to store")
+        
         stored_count = 0
         
-        with sqlite3.connect(self.db_path) as conn:
-            for post in posts:
-                try:
-                    # Calculate engagement score
-                    engagement = post.get('likes', 0) + post.get('comments', 0) + post.get('shares', 0)
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                for post in posts:
+                    try:
+                        # Calculate engagement score
+                        engagement = post.get('likes', 0) + post.get('comments', 0) + post.get('shares', 0)
                     
-                    # Detect CTA and links
-                    content = post.get('content', '').lower()
-                    has_cta = any(cta in content for cta in [
-                        'click', 'buy now', 'learn more', 'sign up', 'download',
-                        'get started', 'contact us', 'book now', 'order now'
-                    ])
-                    has_link = 'http' in content or 'www.' in content
-                    
-                    conn.execute('''
-                        INSERT OR REPLACE INTO posts 
-                        (post_id, content, date_posted, likes, comments, shares, 
-                         engagement_score, has_cta, has_link, raw_data)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ''', (
-                        post.get('id', ''),
-                        post.get('content', ''),
-                        post.get('date', ''),
-                        post.get('likes', 0),
-                        post.get('comments', 0),
-                        post.get('shares', 0),
-                        engagement,
-                        has_cta,
-                        has_link,
-                        json.dumps(post)
-                    ))
-                    stored_count += 1
-                    
-                except Exception as e:
-                    print(f"Error storing post: {e}")
-                    continue
+                        # Detect CTA and links
+                        content = post.get('content', '').lower()
+                        has_cta = any(cta in content for cta in [
+                            'click', 'buy now', 'learn more', 'sign up', 'download',
+                            'get started', 'contact us', 'book now', 'order now'
+                        ])
+                        has_link = 'http' in content or 'www.' in content
+                        
+                        conn.execute('''
+                            INSERT OR REPLACE INTO posts 
+                            (post_id, content, date_posted, likes, comments, shares, 
+                             engagement_score, has_cta, has_link, raw_data)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ''', (
+                            post.get('id', ''),
+                            post.get('content', ''),
+                            post.get('date', ''),
+                            post.get('likes', 0),
+                            post.get('comments', 0),
+                            post.get('shares', 0),
+                            engagement,
+                            has_cta,
+                            has_link,
+                            json.dumps(post)
+                        ))
+                        stored_count += 1
+                        
+                    except Exception as e:
+                        print(f"Error storing post: {e}")
+                        continue
             
-            conn.commit()
+                conn.commit()
+        except sqlite3.Error as e:
+            raise DatabaseError(f"Failed to store posts: {e}")
         
         return stored_count
     

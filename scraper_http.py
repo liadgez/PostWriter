@@ -19,6 +19,18 @@ import requests
 from utils.cookies import load_cookies_session
 from utils.text_processing import clean_text
 
+# Import custom exceptions
+from exceptions import (
+    ScrapingError, 
+    AuthenticationError, 
+    CookieError,
+    FacebookAccessError,
+    DataQualityError
+)
+
+# Import content quality filter
+from content_filter import ContentFilter
+
 class FacebookHTTPScraper:
     def __init__(self, config):
         self.config = config
@@ -28,6 +40,9 @@ class FacebookHTTPScraper:
         self.max_posts = config['scraping']['max_posts']
         self.pages_to_scrape = config['scraping'].get('pages_to_scrape', 5)
         self.retry_attempts = config['scraping'].get('retry_attempts', 3)
+        
+        # Initialize content filter
+        self.content_filter = ContentFilter()
         
         # Setup HTTP session with proper decompression handling
         self.session = HTMLSession()
@@ -54,6 +69,10 @@ class FacebookHTTPScraper:
         load_cookies_session(self.session, self.cookies_path)
         
         # Try to extract cookies from Chrome debugging API if file loading failed
+        self._try_extract_chrome_cookies()
+    
+    def _try_extract_chrome_cookies(self):
+        """Try to extract cookies from Chrome debugging API"""
         try:
             response = requests.get("http://localhost:9222/json/tabs", timeout=5)
             tabs = response.json()
@@ -77,6 +96,11 @@ class FacebookHTTPScraper:
                             self.parse_cookie_string(cookie_string)
                             print("✅ Extracted cookies from Chrome session")
                             return True
+        except requests.RequestException as e:
+            # Don't raise exception in initialization, just warn
+            print(f"⚠️ Chrome debugging API not available: {e}")
+        except (KeyError, ValueError) as e:
+            print(f"⚠️ Invalid response from Chrome debugging API: {e}")
         except Exception as e:
             print(f"⚠️ Could not extract cookies from Chrome: {e}")
         
@@ -95,17 +119,27 @@ class FacebookHTTPScraper:
         
         posts = []
         try:
+            # Validate profile URL
+            if not self.mobile_profile_url:
+                raise FacebookAccessError("No profile URL configured")
+            
             # Try mbasic first (more reliable for scraping)
             mbasic_url = self.mobile_profile_url.replace('m.facebook.com', 'mbasic.facebook.com')
             url = mbasic_url
             print(f"📱 Requesting mbasic: {url}")
             
             # Get the main profile page with proper encoding handling
-            response = self.session.get(url, timeout=30)
+            try:
+                response = self.session.get(url, timeout=30)
+            except requests.RequestException as e:
+                raise FacebookAccessError(f"Failed to connect to Facebook: {e}")
             
-            if response.status_code != 200:
-                print(f"❌ Failed to access Facebook. Status: {response.status_code}")
-                return []
+            if response.status_code == 404:
+                raise FacebookAccessError(f"Profile not found: {url}")
+            elif response.status_code == 429:
+                raise FacebookAccessError("Rate limited by Facebook. Please wait and try again.")
+            elif response.status_code != 200:
+                raise FacebookAccessError(f"Facebook returned status {response.status_code}")
             
             # Ensure proper text decoding
             response.encoding = response.apparent_encoding or 'utf-8'
@@ -113,13 +147,13 @@ class FacebookHTTPScraper:
             
             # Check if we're redirected to login page
             if 'login' in response.url.lower() or 'Log into Facebook' in response.text:
-                print("⚠️ Redirected to login page - authentication required")
-                print("📋 To fix this:")
-                print("   1. Open Chrome with debugging: chrome --remote-debugging-port=9222")
-                print("   2. Login to Facebook manually in that Chrome session")
-                print("   3. Navigate to your profile page")
-                print("   4. Run the scraper again")
-                return []
+                raise AuthenticationError(
+                    "Authentication required. Please:\n"
+                    "   1. Open Chrome with debugging: chrome --remote-debugging-port=9222\n"
+                    "   2. Login to Facebook manually in that Chrome session\n"
+                    "   3. Navigate to your profile page\n"
+                    "   4. Run the scraper again"
+                )
             
             # Parse posts from the response
             page_posts = self.extract_posts_from_response(response, 0)
@@ -169,8 +203,36 @@ class FacebookHTTPScraper:
             
             print(f"🎉 Scraping complete! Found {len(posts)} total posts")
             
+            # Apply content quality filtering
+            if posts:
+                print("🔍 Filtering content quality...")
+                good_posts, filtered_posts = self.content_filter.filter_post_list(posts)
+                stats = self.content_filter.get_filter_stats(posts, good_posts, filtered_posts)
+                
+                print(f"📊 Quality Filter Results:")
+                print(f"   • Total scraped: {stats['total_posts']}")
+                print(f"   • High quality: {stats['good_posts']}")
+                print(f"   • Filtered out: {stats['filtered_posts']} ({stats['filter_rate']:.1f}%)")
+                print(f"   • Average quality: {stats['average_quality']:.1f}/10")
+                
+                if stats['content_types']:
+                    print(f"   • Content types: {dict(stats['content_types'])}")
+                
+                # Use filtered posts
+                posts = good_posts
+                
+                if not posts:
+                    raise DataQualityError(
+                        "All scraped content was filtered out due to poor quality. "
+                        "This usually means the scraper is getting UI elements instead of actual posts. "
+                        "Try logging into Facebook manually and ensuring you're on the correct profile page."
+                    )
+            
         except Exception as e:
-            print(f"❌ Error during scraping: {e}")
+            if isinstance(e, (ScrapingError, AuthenticationError, FacebookAccessError, DataQualityError)):
+                raise  # Re-raise our custom exceptions
+            else:
+                raise ScrapingError(f"Unexpected error during scraping: {e}")
         
         return posts[:self.max_posts]
     
@@ -269,49 +331,129 @@ class FacebookHTTPScraper:
             return None
     
     def extract_post_text(self, post_elem) -> str:
-        """Extract post text from mobile Facebook element"""
-        # Mobile Facebook text selectors
-        text_selectors = [
+        """Extract post text from mobile Facebook element with improved quality"""
+        # Priority order: Try more specific selectors first
+        content_candidates = []
+        
+        # 1. Try specific Facebook post content selectors
+        specific_selectors = [
             'div[data-testid="post_message"]',
-            'span[data-testid="post_message"]', 
+            'span[data-testid="post_message"]',
             '.userContent',
             'div[class*="userContent"]',
-            'p',
-            'div p',
-            'span[dir="auto"]',
-            'div[dir="auto"]'
+            '[data-ad-preview="message"]',
+            'div[data-ft*="top_level_post_id"]'
         ]
         
-        content = ""
-        for selector in text_selectors:
+        for selector in specific_selectors:
             try:
                 elements = post_elem.select(selector)
                 for elem in elements:
                     text = elem.get_text().strip()
-                    if text and len(text) > len(content):
-                        content = text
+                    if text and len(text) > 20:  # Minimum length threshold
+                        content_candidates.append((text, len(text), 'specific'))
             except:
                 continue
         
-        # If no content found, try broader search
-        if not content:
+        # 2. Try paragraph and div elements
+        text_elements = ['p', 'div[dir="auto"]', 'span[dir="auto"]']
+        for selector in text_elements:
+            try:
+                elements = post_elem.select(selector)
+                for elem in elements:
+                    text = elem.get_text().strip()
+                    # Check if this looks like actual content
+                    if (len(text) > 30 and 
+                        not self._is_ui_text(text) and
+                        self._has_meaningful_content(text)):
+                        content_candidates.append((text, len(text), 'element'))
+            except:
+                continue
+        
+        # 3. If still no good content, try broader extraction with filtering
+        if not content_candidates:
             all_text = post_elem.get_text()
             lines = [line.strip() for line in all_text.split('\n') if line.strip()]
             
-            # Filter out UI elements
-            skip_phrases = [
-                'like', 'comment', 'share', 'react', 'sponsored', 'promoted',
-                'minutes ago', 'hours ago', 'days ago', 'weeks ago', 'just now'
-            ]
-            
-            filtered_lines = []
+            # Build content from meaningful lines
+            meaningful_lines = []
             for line in lines:
-                if len(line) > 10 and not any(skip in line.lower() for skip in skip_phrases):
-                    filtered_lines.append(line)
+                if (len(line) > 15 and 
+                    not self._is_ui_text(line) and
+                    self._has_meaningful_content(line)):
+                    meaningful_lines.append(line)
             
-            content = ' '.join(filtered_lines[:3])
+            if meaningful_lines:
+                combined_text = '\n'.join(meaningful_lines[:5])  # Max 5 lines
+                if len(combined_text) > 30:
+                    content_candidates.append((combined_text, len(combined_text), 'extracted'))
         
-        return clean_text(content)
+        # Select best candidate
+        if content_candidates:
+            # Sort by priority: specific > element > extracted, then by length
+            priority_order = {'specific': 3, 'element': 2, 'extracted': 1}
+            content_candidates.sort(key=lambda x: (priority_order[x[2]], x[1]), reverse=True)
+            best_content = content_candidates[0][0]
+            return clean_text(best_content)
+        
+        return ""
+    
+    def _is_ui_text(self, text: str) -> bool:
+        """Check if text appears to be UI elements"""
+        text_lower = text.lower().strip()
+        
+        # Common UI patterns
+        ui_patterns = [
+            r'^\d+[wdhms]$',  # Time stamps like "5w", "2d", "3h"
+            r'^(like|comment|share|reply|react)$',
+            r'^(author|online status|active|offline)$',
+            r'^(see more|see less|show more|show less)$',
+            r'^(sponsored|promoted|ad)$',
+            r'^\d+\s+(like|comment|share)s?$',  # "5 likes", "2 comments"
+        ]
+        
+        for pattern in ui_patterns:
+            if re.match(pattern, text_lower):
+                return True
+        
+        # Check for high ratio of UI words
+        ui_keywords = {
+            'like', 'comment', 'share', 'reply', 'react', 'author', 'sponsored',
+            'promoted', 'see more', 'see less', 'show more', 'active', 'offline'
+        }
+        
+        words = text_lower.split()
+        if len(words) > 0:
+            ui_word_ratio = sum(1 for word in words if word in ui_keywords) / len(words)
+            if ui_word_ratio > 0.5:
+                return True
+        
+        return False
+    
+    def _has_meaningful_content(self, text: str) -> bool:
+        """Check if text contains meaningful content"""
+        text_lower = text.lower()
+        
+        # Look for content indicators
+        content_indicators = {
+            # Question words
+            'what', 'how', 'why', 'when', 'where', 'who', 'which',
+            # Marketing terms
+            'get', 'buy', 'learn', 'discover', 'find', 'click', 'visit',
+            # Common verbs and adjectives that indicate real content
+            'amazing', 'great', 'best', 'new', 'free', 'special', 'important',
+            'today', 'now', 'here', 'this', 'that', 'you', 'we', 'our'
+        }
+        
+        # Check for sentence structure
+        has_sentence_structure = ('.' in text or '!' in text or '?' in text)
+        has_multiple_words = len(text.split()) >= 4
+        has_content_words = any(word in text_lower for word in content_indicators)
+        has_hashtags = '#' in text
+        has_urls = 'http' in text_lower or 'www.' in text_lower
+        
+        return (has_sentence_structure or has_content_words or 
+                has_hashtags or has_urls) and has_multiple_words
     
     def extract_engagement_metrics(self, post_elem) -> Dict:
         """Extract likes, comments, shares from mobile post"""

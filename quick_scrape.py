@@ -6,11 +6,13 @@ Quick Facebook scraper using requests with proper cookie handling
 import requests
 import json
 import os
+from datetime import datetime
 from bs4 import BeautifulSoup
 import re
 
 # Import shared utilities to eliminate duplication
 from utils.cookies import load_cookies_dict
+from content_filter import ContentFilter
 
 def scrape_liran_posts():
     """Scrape posts from Liran's profile"""
@@ -62,14 +64,32 @@ def scrape_liran_posts():
             
             print(f"Found {len(story_elements)} potential post elements")
             
+            # Extract posts with better content detection
             for i, element in enumerate(story_elements[:20]):  # Limit to 20 posts
                 post_text = element.get_text(strip=True)
-                if len(post_text) > 50:  # Filter out very short elements
+                if len(post_text) > 30:  # Initial length filter
                     posts.append({
-                        'id': i + 1,
-                        'text': post_text[:500] + '...' if len(post_text) > 500 else post_text,
-                        'full_text': post_text
+                        'id': f'quick_post_{i + 1}',
+                        'content': post_text,
+                        'source': 'quick_scrape'
                     })
+            
+            # Apply content quality filtering
+            if posts:
+                content_filter = ContentFilter()
+                good_posts, filtered_posts = content_filter.filter_post_list(posts)
+                stats = content_filter.get_filter_stats(posts, good_posts, filtered_posts)
+                
+                print(f"📊 Content Quality Results:")
+                print(f"   • Total found: {stats['total_posts']}")
+                print(f"   • High quality: {stats['good_posts']}")
+                print(f"   • Filtered out: {stats['filtered_posts']} ({stats['filter_rate']:.1f}%)")
+                
+                if stats['good_posts'] > 0:
+                    print(f"   • Average quality: {stats['average_quality']:.1f}/10")
+                    print(f"   • Content types: {dict(stats['content_types'])}")
+                
+                return good_posts
             
             return posts
         else:
@@ -100,5 +120,4 @@ def main():
         print("❌ No posts found")
 
 if __name__ == "__main__":
-    from datetime import datetime
     main()

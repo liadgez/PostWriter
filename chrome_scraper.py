@@ -11,6 +11,7 @@ from selenium.webdriver.support import expected_conditions as EC
 import json
 import time
 from datetime import datetime
+from content_filter import ContentFilter
 
 def connect_to_chrome():
     """Connect to existing Chrome session"""
@@ -96,8 +97,8 @@ def scrape_posts(driver):
                     
                     if len(clean_text) > 20:
                         post_data = {
-                            'id': len(posts) + 1,
-                            'text': clean_text[:2000] + '...' if len(clean_text) > 2000 else clean_text,
+                            'id': f'chrome_post_{len(posts) + 1}',
+                            'content': clean_text,
                             'raw_text': post_text,
                             'timestamp': datetime.now().isoformat(),
                             'source': 'chrome_scraper'
@@ -114,6 +115,24 @@ def scrape_posts(driver):
         
     except Exception as e:
         print(f"Error finding posts: {e}")
+    
+    # Apply content quality filtering
+    if posts:
+        print("🔍 Applying content quality filter...")
+        content_filter = ContentFilter()
+        good_posts, filtered_posts = content_filter.filter_post_list(posts)
+        stats = content_filter.get_filter_stats(posts, good_posts, filtered_posts)
+        
+        print(f"📊 Content Quality Results:")
+        print(f"   • Total scraped: {stats['total_posts']}")
+        print(f"   • High quality: {stats['good_posts']}")
+        print(f"   • Filtered out: {stats['filtered_posts']} ({stats['filter_rate']:.1f}%)")
+        
+        if stats['good_posts'] > 0:
+            print(f"   • Average quality: {stats['average_quality']:.1f}/10")
+            print(f"   • Content types: {dict(stats['content_types'])}")
+        
+        return good_posts
     
     return posts
 

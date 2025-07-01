@@ -25,10 +25,9 @@ analysis:
   min_engagement: 5  # Minimum likes+comments for template consideration
   max_templates: 10
   
-# Content generation will be handled by separate project
-# generation:
-#   default_variations: 3
-#   max_length: 2000
+generation:
+  default_variations: 3
+  max_length: 2000
   
 directories:
   data_dir: "./data"

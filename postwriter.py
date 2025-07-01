@@ -11,26 +11,40 @@ import os
 from datetime import datetime
 
 def load_config():
-    """Load configuration from config.yaml"""
+    """Load and validate configuration from config.yaml"""
     try:
-        with open('config.yaml', 'r') as f:
-            return yaml.safe_load(f)
-    except FileNotFoundError:
-        print("Error: config.yaml not found. Please create it first.")
+        from config_validator import ConfigValidator, ConfigValidationError
+        
+        validator = ConfigValidator('config.yaml')
+        
+        # Validate configuration
+        if not validator.validate_all(create_dirs=True):
+            print("❌ Configuration validation failed. Please fix the errors above.")
+            sys.exit(1)
+        
+        return validator.get_config()
+        
+    except ConfigValidationError as e:
+        print(f"❌ Configuration Error: {e}")
         sys.exit(1)
-    except yaml.YAMLError as e:
-        print(f"Error parsing config.yaml: {e}")
-        sys.exit(1)
+    except ImportError:
+        # Fallback to basic loading if validator not available
+        print("⚠️  Configuration validator not available, using basic loading...")
+        try:
+            with open('config.yaml', 'r') as f:
+                return yaml.safe_load(f)
+        except FileNotFoundError:
+            print("Error: config.yaml not found. Please create it first.")
+            sys.exit(1)
+        except yaml.YAMLError as e:
+            print(f"Error parsing config.yaml: {e}")
+            sys.exit(1)
 
 def setup_directories(config):
-    """Ensure data directories exist"""
-    dirs = [
-        config['directories']['data_dir'],
-        config['directories']['raw_posts_dir'],
-        config['directories']['logs_dir']
-    ]
-    for dir_path in dirs:
-        os.makedirs(dir_path, exist_ok=True)
+    """Ensure data directories exist (handled by config validator)"""
+    # Directory creation is now handled by the config validator
+    # This function is kept for backward compatibility
+    pass
 
 def log_action(message, config):
     """Simple logging function"""
@@ -196,6 +210,87 @@ def cmd_login(args, config):
         print(f"Error during login: {e}")
         log_action(f"Login failed: {e}", config)
 
+def cmd_validate(args, config):
+    """Validate configuration without running any operations"""
+    log_action("Validating configuration...", config)
+    
+    try:
+        from config_validator import validate_config
+        
+        print("🔍 Running comprehensive configuration validation...")
+        success = validate_config('config.yaml', create_dirs=False)
+        
+        if success:
+            print("\n✅ Configuration is valid and ready to use!")
+            print("You can now run other commands like 'sync', 'analyze', etc.")
+        else:
+            print("\n❌ Configuration validation failed!")
+            print("Please fix the errors above before running other commands.")
+        
+    except Exception as e:
+        print(f"Error during validation: {e}")
+
+def cmd_secure(args, config):
+    """Manage secure storage for cookies and sensitive data"""
+    log_action(f"Secure storage operation: {args.operation}", config)
+    
+    try:
+        from secure_storage import CookieManager, SecureStorage
+        
+        if args.operation == 'import-cookies':
+            if not args.file:
+                print("❌ Error: --file argument required for import-cookies")
+                return
+            
+            cookie_mgr = CookieManager()
+            password = getattr(args, 'password', None)
+            success = cookie_mgr.save_cookies_from_file(args.file, password)
+            
+            if success:
+                print(f"✅ Cookies imported securely from {args.file}")
+                print("🔒 Cookies are now encrypted and stored safely")
+            else:
+                print(f"❌ Failed to import cookies from {args.file}")
+        
+        elif args.operation == 'status':
+            cookie_mgr = CookieManager()
+            
+            if cookie_mgr.has_cookies():
+                print("✅ Secure cookies are available")
+                try:
+                    cookies = cookie_mgr.get_cookies_for_requests()
+                    print(f"🔒 {len(cookies)} cookies stored securely")
+                except:
+                    print("🔒 Secure cookies exist (password required to view)")
+            else:
+                print("⚠️ No secure cookies found")
+            
+            # Check for regular cookie files
+            regular_file = config['facebook']['cookies_path']
+            if os.path.exists(regular_file):
+                print(f"📄 Regular cookie file exists: {regular_file}")
+                print("💡 Run 'secure import-cookies --file <path>' to encrypt them")
+        
+        elif args.operation == 'delete':
+            storage = SecureStorage()
+            cookie_mgr = CookieManager()
+            
+            confirm = input("⚠️ This will delete all secure storage. Continue? (y/N): ")
+            if confirm.lower() == 'y':
+                storage.delete_storage()
+                cookie_mgr.storage.delete_storage()
+                print("✅ All secure storage deleted")
+            else:
+                print("❌ Operation cancelled")
+        
+        else:
+            print(f"❌ Unknown secure operation: {args.operation}")
+    
+    except ImportError:
+        print("❌ Secure storage not available. Install cryptography package.")
+    except Exception as e:
+        print(f"❌ Secure storage error: {e}")
+
 def cmd_export(args, config):
     """Export analysis data for content generation project"""
     log_action("Exporting analysis data...", config)
@@ -306,6 +401,16 @@ def main():
     # Export command
     export_parser = subparsers.add_parser('export', help='Export data for content generation')
     
+    # Validate command
+    validate_parser = subparsers.add_parser('validate', help='Validate configuration')
+    
+    # Secure command
+    secure_parser = subparsers.add_parser('secure', help='Manage secure storage')
+    secure_parser.add_argument('operation', choices=['import-cookies', 'status', 'delete'], 
+                              help='Secure storage operation')
+    secure_parser.add_argument('--file', help='File path for import operations')
+    secure_parser.add_argument('--password', help='Password for secure storage (will prompt if not provided)')
+    
     args = parser.parse_args()
     
     if not args.command:
@@ -325,7 +430,9 @@ def main():
         'tpl': cmd_templates,
         'idea': cmd_idea,
         'analyze': cmd_analyze,
-        'export': cmd_export
+        'export': cmd_export,
+        'validate': cmd_validate,
+        'secure': cmd_secure
     }
     
     if args.command in commands:
