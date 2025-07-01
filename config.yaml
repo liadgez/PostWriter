@@ -1,0 +1,36 @@
+facebook:
+  profile_url: "https://www.facebook.com/liran.galizian"
+  mobile_profile_url: "https://m.facebook.com/liran.galizian"
+  mbasic_profile_url: "https://mbasic.facebook.com/liran.galizian"
+  cookies_path: "./data/cookies.json"
+  use_mobile: true  # Use mobile interface for better scraping
+  
+database:
+  path: "./data/posts.db"
+  
+scraping:
+  max_posts: 100
+  scroll_delay: 2
+  login_wait_time: 60  # Wait 60 seconds for manual login
+  pre_scrape_delay: 10  # Wait 10 seconds before starting scrape
+  browser_profile_dir: "./data/browser_profile"  # Persistent browser session
+  use_existing_chrome: true  # Connect to existing Chrome session
+  chrome_debug_port: 9222  # Chrome remote debugging port
+  pages_to_scrape: 5  # Number of pages to paginate through
+  posts_per_page: 10  # Expected posts per page
+  retry_attempts: 3  # Retry failed requests
+  use_mobile_selectors: true  # Use mobile-optimized CSS selectors
+  
+analysis:
+  min_engagement: 5  # Minimum likes+comments for template consideration
+  max_templates: 10
+  
+# Content generation will be handled by separate project
+# generation:
+#   default_variations: 3
+#   max_length: 2000
+  
+directories:
+  data_dir: "./data"
+  raw_posts_dir: "./data/raw_posts"
+  logs_dir: "./data/logs"
