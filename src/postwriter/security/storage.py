@@ -14,7 +14,7 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 import getpass
 
-from exceptions import SecurityError, ValidationError
+from ..utils.exceptions import SecurityError, ValidationError
 
 class SecureStorage:
     """Secure storage for sensitive configuration data"""

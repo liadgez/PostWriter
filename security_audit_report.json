@@ -1,0 +1,17 @@
+{
+  "generated_at": "2025-07-01T17:25:35.683831",
+  "logger_name": "demo",
+  "total_incidents": 1,
+  "incidents": [
+    {
+      "timestamp": "2025-07-01T17:25:35.653706",
+      "event_type": "authentication_attempt",
+      "details": {
+        "user": "admin",
+        "password": "***at...rd***",
+        "source_ip": "192.168.1.100",
+        "success": false
+      }
+    }
+  ]
+}

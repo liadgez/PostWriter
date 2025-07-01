@@ -16,13 +16,13 @@ import time
 import requests
 
 # Import shared utilities to eliminate duplication
-from utils.cookies import load_cookies_session
-from utils.text_processing import clean_text
-from rate_limiter import get_rate_limiter, RequestType
-from secure_logging import get_secure_logger
+from ..utils.cookies import load_cookies_session
+from ..utils.text_processing import clean_text
+from ..security.rate_limiter import get_rate_limiter, RequestType
+from ..security.logging import get_secure_logger
 
 # Import custom exceptions
-from exceptions import (
+from ..utils.exceptions import (
     ScrapingError, 
     AuthenticationError, 
     CookieError,
@@ -31,7 +31,7 @@ from exceptions import (
 )
 
 # Import content quality filter
-from content_filter import ContentFilter
+from ..utils.content_filter import ContentFilter
 
 class FacebookHTTPScraper:
     def __init__(self, config):
@@ -624,4 +624,21 @@ class FacebookHTTPScraper:
                 return True
         
         return False
+
+
+class FacebookScraper:
+    """Legacy compatibility class"""
+    def __init__(self, config):
+        self.http_scraper = FacebookHTTPScraper(config)
     
+    def login_step(self):
+        """Open browser for manual login"""
+        print("Please login to Facebook manually using Chrome with debugging enabled:")
+        print("1. Chrome should be running with: --remote-debugging-port=9222")
+        print("2. Navigate to facebook.com and login")
+        print("3. Go to your profile page") 
+        print("4. Run 'postwriter sync' to scrape posts")
+    
+    def scrape_posts(self):
+        """Delegate to HTTP scraper"""
+        return self.http_scraper.scrape_posts()

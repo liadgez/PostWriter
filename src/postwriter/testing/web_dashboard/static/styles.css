@@ -1,0 +1,106 @@
+/* Additional styles for PostWriter Dashboard */
+
+.fade-in {
+    animation: fadeIn 0.3s ease-in;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.pulse {
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+    100% { transform: scale(1); }
+}
+
+.shake {
+    animation: shake 0.5s ease-in-out;
+}
+
+@keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-5px); }
+    75% { transform: translateX(5px); }
+}
+
+/* Dark theme refinements */
+.panel:hover {
+    border-color: #606060;
+    transition: border-color 0.2s;
+}
+
+.info-card:hover {
+    background: #404040;
+    transition: background 0.2s;
+}
+
+/* Loading spinner */
+.spinner {
+    border: 3px solid #404040;
+    border-top: 3px solid #00ff88;
+    border-radius: 50%;
+    width: 20px;
+    height: 20px;
+    animation: spin 1s linear infinite;
+    display: inline-block;
+    margin-right: 10px;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Status badges */
+.status-badge {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 12px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.status-badge.success {
+    background: #00ff88;
+    color: #1a1a1a;
+}
+
+.status-badge.warning {
+    background: #ffa502;
+    color: #1a1a1a;
+}
+
+.status-badge.error {
+    background: #ff4757;
+    color: white;
+}
+
+.status-badge.info {
+    background: #3742fa;
+    color: white;
+}
+
+/* Custom scrollbar */
+.log-container::-webkit-scrollbar {
+    width: 8px;
+}
+
+.log-container::-webkit-scrollbar-track {
+    background: #2d2d2d;
+}
+
+.log-container::-webkit-scrollbar-thumb {
+    background: #606060;
+    border-radius: 4px;
+}
+
+.log-container::-webkit-scrollbar-thumb:hover {
+    background: #808080;
+}
